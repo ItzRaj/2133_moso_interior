@@ -3,7 +3,7 @@ name: Deploy Static Website to EC2 (Apache)
 on:
   push:
     branches:
-      - main
+      - master
 
 jobs:
   deploy:
