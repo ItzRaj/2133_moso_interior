@@ -1,4 +1,4 @@
-name: Deploy Static Website to EC2
+name: Deploy Static Website to EC2 (Apache)
 
 on:
   push:
@@ -10,39 +10,46 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Checkout the code from the repository
-      - name: Checkout code
-        uses: actions/checkout@v3
+    # Step 1: Checkout the code from your GitHub repository
+    - name: Checkout code
+      uses: actions/checkout@v3
 
-      # Step 2: Set up SSH key for authentication
-      - name: Add SSH key
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          eval "$(ssh-agent -s)"
-          ssh-add ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+    # Step 2: Set up SSH key to access your EC2 instance
+    - name: Setup SSH
+      uses: webfactory/ssh-agent@v0.8.1
+      with:
+        ssh-private-key: ${{ secrets.EC2_KEY }}
 
-      # Step 3: Deploy the static website to the EC2 instance
-      - name: Deploy to EC2
-        uses: appleboy/ssh-action@v0.1.6
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: 22
-          script: |
-            # Navigate to the web server directory
-            cd /var/www/html
-            
-            # Remove old files (if any)
-            sudo rm -rf *
-            
-            # Copy the new files from the repository
-            sudo mkdir -p 2133_moso_interior
-            cd 2133_moso_interior
-            sudo cp -r /home/${{ secrets.EC2_USER }}/2133_moso_interior/* .
+    # Step 3: Install Apache, start, and enable it
+    - name: Install and Setup Apache
+      run: |
+        ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+          # Install Apache (Amazon Linux)
+          if [ -f /etc/system-release ] && grep -q "Amazon Linux" /etc/system-release; then
+            sudo yum install httpd -y
+            sudo systemctl start httpd
+            sudo systemctl enable httpd
+          # Install Apache (Ubuntu)
+          elif [ -f /etc/lsb-release ]; then
+            sudo apt update
+            sudo apt install apache2 -y
+            sudo systemctl start apache2
+            sudo systemctl enable apache2
+          fi
+        EOF
 
-            # Restart the web server (if needed)
-            sudo systemctl restart nginx || sudo systemctl restart httpd
+    # Step 4: Copy files to the EC2 instance
+    - name: Deploy to EC2
+      run: |
+        rsync -avz --delete ./ ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:${{ secrets.REMOTE_PATH }}
+
+    # Step 5: Restart Apache Web Server
+    - name: Restart Apache
+      run: |
+        ssh -o StrictHostKeyChecking=no ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+          if [ -f /etc/system-release ] && grep -q "Amazon Linux" /etc/system-release; then
+            sudo systemctl restart httpd
+          elif [ -f /etc/lsb-release ]; then
+            sudo systemctl restart apache2
+          fi
+        EOF
